@@ -1,0 +1,65 @@
+1. Создаем venv для проекта
+python3 -m venv env
+. env/bin/activate
+nano requirements.txt
+    добавляем библиотеки:
+    
+Django==3.2
+django-rest-framework
+psycopg2-binary
+
+pip3 install -r requirements.txt
+(если выходит ошибка, то используем 
+ pip3 install wheel)
+pip3 freeze
+
+2. Создаем БД для связи с проектом
+sudo -i -u postgres
+psql
+CREATE DATABASE db_name;
+
+3.Создаем Django Project
+django-admin startproject ###proj-name### .  ОБЯЗАТЕЛЬНО прописать имя 
+                                                и не забыть точку
+mkdir applications -> cd applications
+django-admin startapp music  ----запускаем приложение
+python3 manage.py runserver ---запуск сервера
+python3 manage.py makemigrations ---упаковка models.py
+python3 manage.py migrate ---миграция models.py
+
+python manage.py createsuperuser ---создаем суперпользователя для админки
+
+4. В файле settings.py изменяем информацию
+поле INSTALLED APPS добавляем
+    # modules
+    'rest_framework',
+
+    #custom apps
+    'applications.music'
+поле DATABASES должно выглядеть примерно так:
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': 'db_name',
+        'USER': 'postgres',
+        'PASSWORD': '1',
+        'HOST': 'localhost',
+        'PORT': 5432,
+    }
+}
+Меняем еще 2 поля (язык, часовой пояс)
+
+LANGUAGE_CODE = 'ru-ru'
+TIME_ZONE = 'Asia/Bishkek'
+
+5. Закидываем проект на GITHUB
+на github.com создаем репо и жмем галочку gitignore (для env). Шаблон берем Python
+Копируем ссылку SSH
+git init
+git remote add origin SSH_LINK
+git pull origin main   ----скачается .gitignore
+git add .
+git commit -m 'Your message about the commit' (проверка git status)
+git branch branch_name
+git checkout branch_name (проверка git branch -v)
+git push origin branch_name
