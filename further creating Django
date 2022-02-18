@@ -1,0 +1,100 @@
+#####
+меняем адрес в apps.py на applications.name
+models.py
+from django.db import models
+
+
+class Category(models.Model):
+    title = models.CharField(max_length=50)
+    year = models.PositiveIntegerField(default=1850)
+
+    def __str__(self):
+        return f"{self.title} --> {self.year}"
+
+
+class Music(models.Model):
+    title = models.CharField(max_length=50)
+    country = models.CharField(max_length=50)
+    year = models.DateField(auto_now=True)
+    category = models.ForeignKey(Category, on_delete=models.CASCADE, related_name='music')
+
+    def __str__(self):
+        return f"{self.category.title} >>> {self.title}"
+
+        
+######
+модели регистрируются в файле admin.py
+from django.contrib import admin
+
+from applications.music.models import Category, Music
+
+admin.site.register(Category)
+admin.site.register(Music)
+
+#####
+в папке music создаем serializers.py
+from rest_framework import serializers
+
+from applications.music.models import Category, Music
+
+
+class CategorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Category
+        fields = ('title', 'year')
+
+class MusicSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Music
+        fields = '__all__'
+
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        representation.pop('id')
+        representation['category'] = CategorySerializer(Category.objects.get(music=instance.id)).data
+
+        return representation
+
+#########
+редактируем views.py
+queryset - псевдосписок несущий в себе полный список всей информации
+
+from rest_framework import generics
+
+from applications.music.models import Music
+from applications.music.serializers import MusicSerializer
+
+
+class MusicListView(generics.ListAPIView):
+    queryset = Music.objects.all()
+    serializer_class = MusicSerializer
+
+###########
+в music создаем urls.py
+from django.urls import path
+
+from applications.music.views import MusicListView
+
+urlpatterns = [
+    path('music-list/', MusicListView.as_view()),
+]
+
+
+### заходим в urls( settings)
+подключаем удаленные урл в корневых
+
+from django.contrib import admin
+from django.urls import path, include
+
+urlpatterns = [
+    path('admin/', admin.site.urls),
+    path('', include('applications.music.urls')),
+]
+
+
+после этого http://127.0.0.1:8000/music-list/ работает
+
+
+#####меняем файл serializers
+
+        # все что отвечает за внешний вид -- to_repesentation()
