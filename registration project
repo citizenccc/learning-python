@@ -226,3 +226,12 @@ git checkout django_dev
 git add .
 git commit -m 'Random comment'
 git push origin django_dev
+---------------------------------------------------------
+стащить проект
+
+git stash
+git pull origin main
+
+git clone HTTPS_LINK .
+rm -rf .git
+djecrety.ir - генерация джанго-ключей (лол, кек, чебурек)
