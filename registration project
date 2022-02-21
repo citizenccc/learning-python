@@ -1,0 +1,217 @@
+python3 -m venv env
+. env/bin/activate
+nano requirements.txt
+Django     
+django-rest-framework
+psycopg2-binary
+python-decouple
+---------------------------------------------------------
+django-admin startproject registration_project .
+mkdir applications --- cd applications
+django-admin startapp account
+---------------------------------------------------------
+Django has a built-in user model (e.g. createsuperuser)
+заходим в models.py чтобы переопределить модель пользователя
+ЭТО  НУЖНО ДЕЛАТЬ ПЕРЕД(!!!!!) МИГРАЦИЯМИ
+blank = True -поле необязательно для заполнения
+null = True -хранит в себе Null
+
+models.py
+..
+from django.contrib.auth.base_user import BaseUserManager
+from django.contrib.auth.models import AbstractUser
+from django.db import models
+
+
+class UserManager(BaseUserManager):
+    use_in_migrations = True
+
+    def create_user(self, email, password, *args, **kwargs):
+        email = self.normalize_email(email)  # нужен для валидации почты (проверка на наличие @ etc.)
+        user = self.model(email=email)
+        user.set_password(password)
+        user.save(using=self._db)
+        return user
+
+    def create_superuser(self, email, password, *args, **kwargs):
+        email = self.normalize_email(email)  # нужен для валидации почты (проверка на наличие @ etc.)
+        user = self.model(email=email)
+        user.set_password(password)
+        user.is_staff = True  # персонал сайта
+        user.is_superuser = True
+        user.save(using=self._db)
+        return user
+
+
+class User(AbstractUser):
+    email = models.EmailField(unique=True)
+    USERNAME_FIELD = 'email'
+    REQUIRED_FIELDS = []
+    
+    objects = UserManager()  # в будущем будет использоваться наш манагер, а не встроенный
+    
+    def __str__(self):
+        return self.email
+    
+пока миграций НЕ делаем
+---------------------------------------------------------
+python decouple - библиотека, чтобы спрятать настройки в .env (SECRET_KEY in settings for instance)
+
+создаем файл .env на главном уровне файла (где manage.py)
+
+SECRET_KEY=django-insecure-2)2alxj97w_qzsptubp&5gj6xwa-0n251-(gsfsvr1zqziddjt
+DEBUG=TRUE
+DB_NAME=registration_db
+DB_USER=postgres
+DB_PASSWORD=1
+# пробелов быть нигде не должно!
+...
+security.py
+..
+SECRET_KEY = config('SECRET_KEY')
+DEBUG = config('DEBUG', default=False)
+.
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': 'registration_db',
+        'USER': config('DB_USER'),
+        'PASSWORD': config('DB_PASSWORD'),
+        'HOST': 'localhost',
+        'PORT': 5432
+    }
+}
+.
+STATIC_URL = 'static/'
+
+AUTH_USER_MODEL = 'account.User'
+
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.TokenAuthentication',
+    ]
+}           # будем использовать тот токен который есть у самого rest framework
+
+.
+INSTALLED_APPS = [
+    'django.contrib.admin',
+    'django.contrib.auth',
+    'django.contrib.contenttypes',
+    'django.contrib.sessions',
+    'django.contrib.messages',
+    'django.contrib.staticfiles',
+    
+    # modules
+    'rest_framework',
+    'rest_framework.authtoken',
+
+    # custom apps
+    'applications.account',
+]
+
+---------------------------------------------------------
+меняем в apps.py 
+name = 'applications.account'
+---------------------------------------------------------
+делаем первые миграции
+python3 manage.py makemigrations
+python3 manage.py migrate
+---------------------------------------------------------
+создаем в account.py файл serializers.py
+serializer translate JSON to Python and back
+
+serializers.py......
+
+from django.contrib.auth import get_user_model
+from rest_framework import serializers
+
+User = get_user_model()
+
+
+class RegisterSerializer(serializers.ModelSerializer):
+    password = serializers.CharField(min_length=6, write_only=True)
+    password_confirmation = serializers.CharField(min_length=6, write_only=True)
+
+    class Meta:
+        model = User
+        fields = ('email', 'password', 'password_confirmation')     # пока эти поля не прописаны,
+                                                                    # поэтому определяем прямо перед ними
+
+    # валидируем данные (проверка на истинность)
+    def validate_email(self, email):
+        if User.objects.filter(email=email).exists():
+            raise serializers.ValidationError('User with the given email already exists')
+        return email
+
+    def validate(self, validated_data):  # validate_data - dictionary
+        # проверка password, password_confirmation
+        password = validated_data.get('password')
+        password_confirmation = validated_data.get('password_confirmation')
+        if password != password_confirmation:
+            raise serializers.ValidationError('Passwords don\'t match')
+        return validated_data
+
+
+    def create(self, validated_data):
+        email = validated_data.get('email')
+        password = validated_data.get('password')
+        user = User.objects.create_user(email, password)     # create_user создан в models
+        return user
+---------------------------------------------------------
+views.py
+3 способа создания: функции, наследование от APIView (каждый метод по отдельности одноименными функциями) и ListAPIView
+
+from rest_framework.views import APIView
+from applications.account.serializers import RegisterSerializer
+from rest_framework.response import Response
+from rest_framework import status
+
+class RegistrationView(APIView):
+    def post(self, request):
+        data = request.data
+        serializer = RegisterSerializer(data=data)
+        if serializer.is_valid(raise_exception=True):
+            serializer.save()
+            return Response('Successfully signed up', status=status.HTTP_201_CREATED)
+---------------------------------------------------------
+внутри account создаем 
+urls.py
+.
+from django.urls import path
+from applications.account.views import RegistrationView
+
+
+urlpatterns = [
+    path('register/', RegistrationView.as_view())
+]
+---------------------------------------------------------
+переходим в глобальный url
+registration_project/urls.py
+
+from django.contrib import admin
+from django.urls import path, include
+
+urlpatterns = [
+    path('admin/', admin.site.urls),
+    path('account/', include('applications.account.urls'))
+]
+---------------------------------------------------------
+запускаем сервер и postman
+chrome://apps/ ---> postman
+
+send POST query to http://localhost:8000/account/register/
+.
+вкладка body (раздел form-data)
+.
+key-email, key-password, key-password_confirmation
+---------------------------------------------------------
+файл account/admin.py
+
+from django.contrib import admin
+from django.contrib.auth import get_user_model
+
+User = get_user_model()
+
+admin.site.register(User)
+---------------------------------------------------------
+python3 manage.py createsuperuser
