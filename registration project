@@ -215,3 +215,14 @@ User = get_user_model()
 admin.site.register(User)
 ---------------------------------------------------------
 python3 manage.py createsuperuser
+---------------------------------------------------------
+закидываем на github
+git init
+git remote add origin SSH_link
+git remote -v (just for lulz)
+git pull origin main
+git branch django_dev
+git checkout django_dev
+git add .
+git commit -m 'Random comment'
+git push origin django_dev
