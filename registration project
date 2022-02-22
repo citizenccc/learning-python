@@ -58,7 +58,6 @@ class User(AbstractUser):
 python decouple - библиотека, чтобы спрятать настройки в .env (SECRET_KEY in settings for instance)
 
 создаем файл .env на главном уровне файла (где manage.py)
-from decouple import config
 
 SECRET_KEY=django-insecure-2)2alxj97w_qzsptubp&5gj6xwa-0n251-(gsfsvr1zqziddjt
 DEBUG=TRUE
@@ -69,6 +68,8 @@ DB_PASSWORD=1
 ...
 security.py
 ..
+from decouple import config
+
 SECRET_KEY = config('SECRET_KEY')
 DEBUG = config('DEBUG', default=False)
 .
