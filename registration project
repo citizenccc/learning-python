@@ -237,3 +237,163 @@ git pull origin main
 git clone HTTPS_LINK .
 rm -rf .git
 djecrety.ir - генерация джанго-ключей (лол, кек, чебурек)
+
+
+_______________________________________________________
+_______________________________________________________
+_______________________________________________________
+_______________________________________________________
+serializers.py
+
+from django.contrib.auth import get_user_model, authenticate
+.
+class LoginSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    password = serializers.CharField(style={'input_type': 'password'}, 
+                                     trim_whitespace=False)
+                                     
+    def validate(self, attrs):
+        email = attrs.get('email')
+        password = attrs.get('password')
+
+        if email and password:
+            user = authenticate(request=self.context.get('request'),
+                                username=email, password=password)
+            if not user:
+                msg = 'Unable to log in with provided credentials'
+                raise serializers.ValidationError(msg, code='authorization')
+
+        else:
+            msg = 'Must include username and password'
+            raise serializers.ValidationError(msg, code='authorization')
+        attrs['user'] = user
+        return attrs
+_______________________________________________________________-
+views.py
+.
+from rest_framework.permissions import IsAuthenticated  #добавляем
+from rest_framework.authtoken.models import Token
+
+class LoginView(ObtainAuthToken):       #попутно импортируем этот модуль
+    serializer_class = LoginSerializer  #тоже попутно импортим
+   
+
+class LogoutView(APIView):
+    permission_classes = [IsAuthenticated, ]
+
+    def post(self, request):
+        user = request.user
+        Token.objects.filter(user=user).delete()
+        return Response('Successfully logged out', status=status.HTTP_200_OK)
+    
+________________________________________________________________
+в urls.py (account) добавляем
+
+from django.urls import path
+from applications.account.views import RegistrationView, LoginView, LogoutView
+
+urlpatterns = [
+    path('register/', RegistrationView.as_view()),
+    path('login/', LoginView.as_view()),
+    path('logout/', LogoutView.as_view())
+]
+
+_______________________________________________________________
+runserver --- postman
+Сначала email, password, password_confirmation, потом только email, password
+http://localhost:8000/account/register/
+http://localhost:8000/account/login/
+
+потом logout
+Authorization Token 666d89da6ade303f218dab6072ad8756d4f28de5
+
+___________________________________________________________________
+создаем приложение product
+edit apps.py
+_____________________
+models.py
+.
+from django.db import models
+
+class Product(models.Model):
+    title = models.CharField(max_length=255)
+    count = models.IntegerField(default=0)
+    price = models.PositiveIntegerField(default=0)
+    image = models.ImageField(upload_to='media')
+
+    def __str__(self):
+        return self.title
+__________________________________________________________
+admin.py
+.
+from django.contrib import admin
+
+from applications.product.product.models import Product
+
+admin.site.register(Product)
+--------------------------------------------------------
+pip3 freeze > requirements.txt
+
+создаем product/serializers.py
+
+from rest_framework import serializers
+from applications.product.models import Product
+
+
+class ProductSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Product
+        fields = '__all__'
+________________________________________________________
+products/views.py
+
+from rest_framework import generics
+from applications.product.models import Product
+from applications.product.serializers import ProductSerializer
+
+class ProductListView(generics.ListAPIView):
+    queryset = Product.objects.all()
+    serializer_class = ProductSerializer
+___________________________________________________
+дбавляем product/urls.py
+
+from django.urls import path
+
+from applications.product.views import ProductListView
+
+urlpatterns = [
+    path('list/', ProductListView.as_view())
+]
+
+_____________________________________________________
+в Постман http://localhost:8000/product/list/ ГЕТ вытаскивает наши продукты
+______________________________________Теперь смогут посмотреть только зареганные
+
+идем в product/views
+.
+from rest_framework import generics
+from rest_framework.permissions import IsAuthenticated
+
+from applications.product.models import Product
+from applications.product.serializers import ProductSerializer
+
+
+class ProductListView(generics.ListAPIView):
+    queryset = Product.objects.all()
+    serializer_class = ProductSerializer
+    permission_classes = [IsAuthenticated, ]
+    
+_______________________________________________________
+registration/products
+
+from django.contrib import admin
+from django.urls import path, include
+
+urlpatterns = [
+    path('admin/', admin.site.urls),
+    path('account/', include('applications.account.urls')),
+    path('product/', include('applications.product.urls'))
+]
+
+__________________________________________________________-
+в .env добавляем media
