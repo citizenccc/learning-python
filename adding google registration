@@ -70,7 +70,7 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')        # absolute path + media
 
 AUTH_USER_MODEL = 'account.User'
 
-# email settings
+# email settings в .env
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 EMAIL_HOST = 'smtp.gmail.com'
 EMAIL_USE_TLS = True
