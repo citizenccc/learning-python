@@ -1,0 +1,252 @@
+virtual environment
+
+requirements.txt
+--
+django
+psycopg2-binary
+django-rest-framework
+python-decouple
+pillow
+--
+
+django-admin startproject stack_overflow_kg .
+mkdir applications --- cd applications
+django-admin startapp account
+
+-------------------------------------------------
+создаем .env
+
+SECRET_KEY=
+DEBUG=TRUE
+DB_NAME=stack_over_db
+DB_USER=postgres
+DB_PASSWORD=1
+
+создаем нашу БД параллельно в postgres
+________________________________________________
+settings.py
+
+from decouple import config
+import os
+
+SECRET_KEY = config('SECRET_KEY')
+DEBUG = config('DEBUG', default=False)
+
+INSTALLED_APPS = [
+    'django.contrib.admin',
+    'django.contrib.auth',
+    'django.contrib.contenttypes',
+    'django.contrib.sessions',
+    'django.contrib.messages',
+    'django.contrib.staticfiles',
+    
+    # modules
+    'rest_framework',
+    'rest_framework.authtoken',
+    
+    # custom apps
+    'applications.account',
+    
+]
+
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': config('DB_NAME'),
+        'USER': config('DB_USER'),
+        'PASSWORD': config('DB_PASSWORD'),
+        'HOST': 'localhost',
+        'PORT': 5432,
+    }
+}
+
+статика проекта - все html/js, стили - все что есть
+в media - фотографии, видео итд
+
+STATIC_URL = 'static/'
+
+MEDIA_URL = 'media/'
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media')        # absolute path + media
+
+AUTH_USER_MODEL = 'account.User'
+
+# email settings
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = 'smtp.gmail.com'
+EMAIL_USE_TLS = True
+EMAIL_PORT = 587
+EMAIL_HOST_USER = config('EMAIL_HOST_USER')
+EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD')
+
+
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.TokenAuthentication',
+    ],
+}       # REST отдаст нам токен
+
+___________________________________________________
+account/models.py
+from django.contrib.auth.models import AbstractUser
+from django.db import models
+from django.contrib.auth.base_user import BaseUserManager
+
+
+class UserManager(BaseUserManager):
+    use_in_migrations = True
+
+    def create_user(self, email, password, *args, **kwargs):
+        email = self.normalize_email(email)
+        user = self.model(email=email)
+        user.set_password(password)
+        user.create_actiation_code()
+        user.save(using=self._db)
+        return user
+
+    def create_superuser(self, email, password, *args, **kwargs):
+        email = self.normalize_email(email)
+        user = self.model(email=email)
+        user.set_password(password)
+        user.is_active = True
+        user.is_staff = True
+        user.is_superuser = True
+        user.save(using=self._db)
+        return user
+
+
+class User(AbstractUser):
+    username = None
+    email = models.EmailField(unique=True)
+    is_staff = models.BooleanField(default=False)
+    activation_code = models.CharField(max_length=50, blank=True)
+
+    USERNAME_FIELD = 'email'
+    REQUIRED_FIELDS = []
+
+    objects = UserManager()
+
+    def __str__(self):
+        return self.email
+
+    def create_actiation_code(self):
+        import hashlib
+        string_to_encode = self.email + str(self.id)
+        encode_string = string_to_encode.encode()
+        md5_object = hashlib.md5(encode_string)
+        activation_code = md5_object.hexdigest()
+        self.activation_code = activation_code
+        return self.activation_code
+________________________________________________
+makemigrations, migrate, createsuperuser
+________________________________________________
+нужна функция отправляющая письма на почту (выносится в utils.py)
+
+создаем account/utils.py:
+
+from django.core.mail import send_mail
+
+def send_activation_email(email, activation_code):
+    activation_url = f"http://localhost:8000/account/activate/{activation_code}"
+    message = f"""
+                Thank you for signing up.
+                Please, activate your account.
+                Activation link: {activation_url}
+                """
+    send_mail(
+        'Activate your account',
+        message,
+        'test@stackoverflow.kg',
+        [email, ],
+        fail_silently=False,
+    )
+___________________________________________________
+создаем account/serializers.py
+
+from django.contrib.auth import get_user_model, authenticate
+from rest_framework import serializers
+
+from applications.account.utils import send_activation_email
+
+User = get_user_model()
+
+class RegisterSerializer(serializers.ModelSerializer):
+    password = serializers.CharField(min_length=6, write_only=True)
+    password_confirmation = serializers.CharField(min_length=6, write_only=True)
+    
+    class Meta:         # все что в мета распространяется на весь класс
+        model = User
+        fields = ('email', 'password', 'password_confirmation')
+        
+    def validate_email(self, email):
+        if User.objects.filter(email=email).exists():                   # objects из setting.py
+            raise serializers.ValidationError('User already exists')
+        return email
+    
+    def validate(self, validated_data):
+        password = validated_data.get('password')
+        password_confirmation = validated_data.get('password_confirmation')
+        if password != password_confirmation:
+            raise serializers.ValidationError("passwords error")
+        return validated_data
+    
+    def create(self, validated_data):
+        email = validated_data.get('email')
+        password = validated_data.get('password')
+        user = User.objects.create_user(email, password)
+        send_activation_email(user.email, user.activation_code)
+        return user
+    _______________________________________________________________
+обработчик account/views.py
+
+
+from rest_framework.views import APIView
+from applications.account.serializers import RegisterSerializer
+from rest_framework.response import Response
+from rest_framework import status
+
+class RegisterView(APIView):
+    def post(self, request):
+        data = request.data  # хранит то, что отправляет юзер
+        serializer = RegisterSerializer(data=data)
+        if serializer.is_valid(raise_exception=True):
+            serializer.save()
+            return Response('Successfully registered!', status=status.HTTP_201_CREATED)
+_______________________________________________________________________
+accounts/url.py
+
+from django.urls import path
+from . import views
+
+urlpatterns = [
+    path('register/', views.RegisterView.as_view()),
+]
+_______________________________________________________________________
+корневой url.py
+
+
+from django.contrib import admin
+from django.urls import path, include
+
+urlpatterns = [
+    path('admin/', admin.site.urls),
+    path('account/', include('applications.account.urls'))
+]
+_______________________________________________________________________
+account/admin.py
+
+from django.contrib import admin
+from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group
+
+User = get_user_model()
+
+admin.site.register(User)
+admin.site.unregister(Group)
+_______________________________________________________________________
+
+идем в админку http://127.0.0.1:8000/admin/
+идем в postman
+_________________________
+
+
+
