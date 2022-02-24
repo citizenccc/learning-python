@@ -1,0 +1,243 @@
+views.py  вьюшка обрабатывает запрос
+
+from django.contrib.auth import get_user_model
+from rest_framework.authtoken.models import Token
+from rest_framework.authtoken.views import ObtainAuthToken
+from rest_framework.generics import get_object_or_404
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.views import APIView
+from applications.account.serializers import RegisterSerializer, LoginSerializer
+from rest_framework.response import Response
+from rest_framework import status
+
+class RegisterView(APIView):
+    def post(self, request):
+        data = request.data  # хранит то, что отправляет юзер
+        serializer = RegisterSerializer(data=data)
+        if serializer.is_valid(raise_exception=True):
+            serializer.save()
+            return Response('Successfully registered!', status=status.HTTP_201_CREATED)
+
+class ActivationView(APIView):
+    def get(self, request, activation_code):
+        User = get_user_model()
+        user = get_object_or_404(User, activation_code=activation_code)
+        user.is_active = True
+        user.activation_code = ''
+        user.save()
+        return Response('Your account was activated successfully', status=status.HTTP_200_OK)
+
+class LoginView(ObtainAuthToken):
+    serializer_class = LoginSerializer
+
+class LogoutView(APIView):
+    permission_classes = [IsAuthenticated, ]
+    
+    def post(self, request):
+        user = request.user
+        Token.objects.filter(user=user).delete()
+        return Response('Successfully logged out', status=status.HTTP_200_OK)
+
+___________________________________________________________________
+account/urls.py
+
+from django.urls import path
+from . import views
+
+urlpatterns = [
+    path('register/', views.RegisterView.as_view()),
+    path('activate/<str:activation_code>/', views.ActivationView.as_view()),
+    path('login/', views.LoginView.as_view()),
+    path('logout/', views.LogoutView.as_view()),
+]
+___________________________________________________________________
+runserver --- registration of a user
+активация работает
+___________________________________________________________________
+
+serializers.py
+
+from django.contrib.auth import get_user_model, authenticate
+from rest_framework import serializers
+
+from applications.account.utils import send_activation_email
+
+User = get_user_model()
+
+class RegisterSerializer(serializers.ModelSerializer):
+    password = serializers.CharField(min_length=6, write_only=True)
+    password_confirmation = serializers.CharField(min_length=6, write_only=True)
+
+    class Meta:         # все что в мета распространяется на весь класс
+        model = User
+        fields = ('email', 'password', 'password_confirmation')
+
+    def validate_email(self, email):
+        if User.objects.filter(email=email).exists():
+            raise serializers.ValidationError('User already exists')
+        return email
+
+    def validate(self, validated_data):
+        password = validated_data.get('password')
+        password_confirmation = validated_data.get('password_confirmation')
+        if password != password_confirmation:
+            raise serializers.ValidationError("passwords error")
+        return validated_data
+
+    def create(self, validated_data):
+        email = validated_data.get('email')
+        password = validated_data.get('password')
+        user = User.objects.create_user(email, password)
+        send_activation_email(user.email, user.activation_code)
+        return user
+
+class LoginSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    password = serializers.CharField(style={'input_type': 'password'}, trim_whitespace=False)
+
+    def validate(self, attrs):
+        email = attrs.get('email')
+        password = attrs.get('password')
+
+        if email and password:
+            user = authenticate(request=self.context.get('request'),
+                                username=email, password=password)
+            if not user:
+                msg = 'No login with provided credentials'
+                raise serializers.ValidationError(msg, code='authorization')
+        else:
+            msg = "no password or email"
+            raise serializers.ValidationError(msg, code='authorization')
+        attrs['user'] = user
+        return attrs
+____________________________________________________________________________
+http://localhost:8000/account/logout/
+Authorization       token 8383c1c19d9a3c2bc0b0cba75f2e6b5f30da43dc
+____________________________________________________________________________
+с account все
+создаем приложение questions
+меняем settings.py, questions/apps.py
+
+questions/models.py
+
+from django.contrib.auth import get_user_model
+from django.db import models
+
+User = get_user_model()
+
+class Category(models.Model):
+    title = models.CharField(max_length=100, unique=True)
+
+    def __str__(self):
+        return self.title
+
+class Question(models.Model):
+    author = models.ForeignKey(User, on_delete=models.CASCADE, 
+                               related_name='question')
+    category = models.ForeignKey(Category, on_delete=models.CASCADE, 
+                                 related_name='question')
+    title = models.TextField()
+    image = models.ImageField(upload_to='')
+    problem = models.TextField()
+    public_date = models.DateField(auto_now_add=True)
+    
+    def __str__(self):
+        return self.title
+    
+makemigrations, migrate
+______________________________________________________________________________
+questions/admin.py
+
+from django.contrib import admin
+from applications.questions.models import Category, Question
+
+admin.site.register(Category)
+admin.site.register(Question)
+______________________________________________________________________________
+создаем questions/serializers.py
+
+from rest_framework import serializers
+
+from applications.questions.models import Category
+
+
+class CategorySerializer(serializers.ModelSerializer):
+    
+    class Meta:
+        model = Category
+        fields = '__all__'
+______________________________________________________________________________
+questions/views.py
+
+from rest_framework import status, generics
+from rest_framework.decorators import api_view
+
+# 1 way на функциях
+from rest_framework.response import Response
+
+from applications.questions.models import Category
+from applications.questions.serializers import CategorySerializer
+#
+#
+# @api_view(['GET', ])
+# def category_list(request):   # в urls идет
+#     if request.method == 'GET':
+#         # print(request.method)
+#         categories = Category.objects.all()
+#         # print(categories)
+#         serializer = CategorySerializer(categories, many=True)
+#         return Response(serializer.data)  # без дата возвращает объект сериалайзер
+
+# 2 way на API
+from rest_framework.views import APIView
+
+#
+# class CategoryView(APIView):
+#     def get(self, request):
+#
+#         categories = Category.objects.all()
+#         serializer = CategorySerializer(categories, many=True)
+#         return Response(serializer.data, status=status.HTTP_200_OK)  # без дата возвращает объект сериалайзер
+
+# 3 using generics
+class CategoryListView(generics.ListAPIView):
+    queryset = Category.objects.all()
+    serializer_class = CategorySerializer
+
+
+
+    
+_______________________________________________________________________________
+создаем questions/urls.py
+
+from django.urls import path
+# 1
+# from applications.questions.views import category_list
+# 2
+# from applications.questions.views import CategoryView
+# 3
+from applications.questions.views import CategoryListView
+
+urlpatterns = [
+    # 1
+    # path('categories-list/', category_list),
+
+    # 2
+    # path('categories-list/', CategoryView.as_view())
+
+    # 3
+    path('categories-list/', CategoryListView.as_view())
+]
+_________________________________________________________________________________
+главный urls.py
+
+from django.contrib import admin
+from django.urls import path, include
+
+urlpatterns = [
+    path('admin/', admin.site.urls),
+    path('account/', include('applications.account.urls')),
+    path('quetions/', include('applications.questions.urls')),
+]
+
+
