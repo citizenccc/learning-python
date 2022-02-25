@@ -30,6 +30,7 @@ class QuestionSerializer(serializers.ModelSerializer):
 _______________________________________________________________________________
 questions/views.py
 
+
 from rest_framework import status, generics
 from rest_framework.decorators import api_view
 
@@ -38,6 +39,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from applications.questions.models import Category, Question
+from applications.questions.permissions import IsQuestionAuthor
 from applications.questions.serializers import CategorySerializer, QuestionSerializer
 #
 #
@@ -83,12 +85,12 @@ class QuestionCreateView(generics.CreateAPIView):
 class QuestionUpdateView(generics.UpdateAPIView):
     queryset = Question.objects.all()
     serializer_class = QuestionSerializer
-    permission_classes = [IsAuthenticated, ]
+    permission_classes = [IsAuthenticated, IsQuestionAuthor]
 
 class QuestionDeleteView(generics.DestroyAPIView):
     queryset = Question.objects.all()
     serializer_class = QuestionSerializer
-    permission_classes = [IsAuthenticated, ]
+    permission_classes = [IsAuthenticated, IsQuestionAuthor]
  ________________________________________________________________________________
 questions/urls.py
 from django.urls import path
@@ -144,4 +146,15 @@ urlpatterns = [
     path('account/', include('applications.account.urls')),
     path('questions/', include('applications.questions.urls')),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+________________________________________________________________________________
 
+создаем questions/permissions.py
+
+from rest_framework.permissions import BasePermission
+
+class IsQuestionAuthor(BasePermission):
+    def has_object_permission(self, request, view, obj):
+        return request.user.is_authenticated and obj.author == request.user
+
+
+Permission - должен возвращать True/False
