@@ -1,0 +1,147 @@
+questions/serializers.py
+
+from rest_framework import serializers
+
+from applications.questions.models import Category, Question
+
+
+class CategorySerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = Category
+        fields = '__all__'
+
+class QuestionSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = Question
+        fields = ('id', 'category', 'title', 'image', 'problem')
+
+    def create(self, validated_data):
+        request = self.context.get('request')
+        validated_data['author_id'] = request.user.id
+        question = Question.objects.create(**validated_data)
+        return question
+    def to_representation(self, instance):
+        rep = super().to_representation(instance)
+        rep['category'] = instance.category.title
+        rep['author'] = instance.author.email
+        return rep
+_______________________________________________________________________________
+questions/views.py
+
+from rest_framework import status, generics
+from rest_framework.decorators import api_view
+
+# 1 way на функциях
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+
+from applications.questions.models import Category, Question
+from applications.questions.serializers import CategorySerializer, QuestionSerializer
+#
+#
+# @api_view(['GET', ])
+# def category_list(request):   # в urls идет
+#     if request.method == 'GET':
+#         # print(request.method)
+#         categories = Category.objects.all()
+#         # print(categories)
+#         serializer = CategorySerializer(categories, many=True)
+#         return Response(serializer.data)  # без дата возвращает объект сериалайзер
+
+# 2 way на API
+from rest_framework.views import APIView
+
+#
+# class CategoryView(APIView):
+#     def get(self, request):
+#
+#         categories = Category.objects.all()
+#         serializer = CategorySerializer(categories, many=True)
+#         return Response(serializer.data, status=status.HTTP_200_OK)  # без дата возвращает объект сериалайзер
+
+# 3 using generics
+class CategoryListView(generics.ListAPIView):
+    queryset = Category.objects.all()
+    serializer_class = CategorySerializer
+
+# Question create view
+class QuestionListView(generics.ListAPIView):
+    queryset = Question.objects.all()
+    serializer_class = QuestionSerializer
+
+
+class QuestionCreateView(generics.CreateAPIView):
+    queryset = Question.objects.all()
+    serializer_class = QuestionSerializer
+    permission_classes = [IsAuthenticated, ]
+
+    def get_serializer_context(self):
+        return {'request': self.request}
+
+class QuestionUpdateView(generics.UpdateAPIView):
+    queryset = Question.objects.all()
+    serializer_class = QuestionSerializer
+    permission_classes = [IsAuthenticated, ]
+
+class QuestionDeleteView(generics.DestroyAPIView):
+    queryset = Question.objects.all()
+    serializer_class = QuestionSerializer
+    permission_classes = [IsAuthenticated, ]
+ ________________________________________________________________________________
+questions/urls.py
+from django.urls import path
+# 1
+# from applications.questions.views import category_list
+# 2
+# from applications.questions.views import CategoryView
+# 3
+from applications.questions.views import CategoryListView, QuestionCreateView, QuestionListView, QuestionUpdateView, \
+    QuestionDeleteView
+
+urlpatterns = [
+    # 1
+    # path('categories-list/', category_list),
+
+    # 2
+    # path('categories-list/', CategoryView.as_view())
+
+    # 3
+    path('categories-list/', CategoryListView.as_view()),
+
+    path('question-create/', QuestionCreateView.as_view()),
+    path('questions-list/', QuestionListView.as_view()),
+    path('question-update/<int:pk>/', QuestionUpdateView.as_view()),
+    path('question-delete/<int:pk>/', QuestionDeleteView.as_view()),
+]
+___________________________________________________________________________________
+runserver http://localhost:8000/questions/question-create/ отправляем пост запрос
+
+python3 manage.py shell    --- обычный шелл
+from applications.account.models import User
+users_data = User.objects.all()
+users_data
+users_data = User.objects.get(email='v.pisarev69@gmail.com')
+users_data
+users_data.email
+users_data.id
+users_data.is_active = False
+users_data.save()
+
+__________________________________________________________________
+
+stackoverflow/urls.py
+
+from django.conf.urls.static import static
+from django.contrib import admin
+from django.urls import path, include
+
+from . import settings
+
+urlpatterns = [
+    path('admin/', admin.site.urls),
+    path('account/', include('applications.account.urls')),
+    path('questions/', include('applications.questions.urls')),
+] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+
