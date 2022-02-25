@@ -2,7 +2,7 @@ questions/serializers.py
 
 from rest_framework import serializers
 
-from applications.questions.models import Category, Question
+from applications.questions.models import Category, Question, Answer
 
 
 class CategorySerializer(serializers.ModelSerializer):
@@ -10,6 +10,17 @@ class CategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = Category
         fields = '__all__'
+
+class AnswerSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Answer
+        fields = ('id', 'question', 'solution', 'image')
+
+    def create(self, validated_data):
+        request = self.context.get('request')
+        validated_data['author_id'] = request.user.id
+        answer = Answer.objects.create(**validated_data)
+        return answer
 
 class QuestionSerializer(serializers.ModelSerializer):
 
@@ -22,25 +33,26 @@ class QuestionSerializer(serializers.ModelSerializer):
         validated_data['author_id'] = request.user.id
         question = Question.objects.create(**validated_data)
         return question
+
     def to_representation(self, instance):
         rep = super().to_representation(instance)
         rep['category'] = instance.category.title
         rep['author'] = instance.author.email
+        rep['solutions'] = AnswerSerializer(Answer.objects.filter(question=instance.id), many=True).data
         return rep
 _______________________________________________________________________________
 questions/views.py
 
-
-from rest_framework import status, generics
+from rest_framework import status, generics, viewsets
 from rest_framework.decorators import api_view
 
 # 1 way на функциях
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from applications.questions.models import Category, Question
+from applications.questions.models import Category, Question, Answer
 from applications.questions.permissions import IsQuestionAuthor
-from applications.questions.serializers import CategorySerializer, QuestionSerializer
+from applications.questions.serializers import CategorySerializer, QuestionSerializer, AnswerSerializer
 #
 #
 # @api_view(['GET', ])
@@ -91,16 +103,29 @@ class QuestionDeleteView(generics.DestroyAPIView):
     queryset = Question.objects.all()
     serializer_class = QuestionSerializer
     permission_classes = [IsAuthenticated, IsQuestionAuthor]
+    
+# 4 method applies only to CRUD
+# CRUD for answers
+class AnswerViewSet(viewsets.ModelViewSet):
+    queryset = Answer.objects.all()
+    serializer_class = AnswerSerializer
+    permission_classes = [IsAuthenticated,]
  ________________________________________________________________________________
 questions/urls.py
-from django.urls import path
+
+from django.urls import path, include
 # 1
 # from applications.questions.views import category_list
 # 2
 # from applications.questions.views import CategoryView
 # 3
+from rest_framework.routers import DefaultRouter
+
 from applications.questions.views import CategoryListView, QuestionCreateView, QuestionListView, QuestionUpdateView, \
-    QuestionDeleteView
+    QuestionDeleteView, AnswerViewSet
+
+router = DefaultRouter()
+router.register('answers', AnswerViewSet)
 
 urlpatterns = [
     # 1
@@ -116,6 +141,7 @@ urlpatterns = [
     path('questions-list/', QuestionListView.as_view()),
     path('question-update/<int:pk>/', QuestionUpdateView.as_view()),
     path('question-delete/<int:pk>/', QuestionDeleteView.as_view()),
+    path('', include(router.urls)),
 ]
 ___________________________________________________________________________________
 runserver http://localhost:8000/questions/question-create/ отправляем пост запрос
@@ -155,6 +181,43 @@ from rest_framework.permissions import BasePermission
 class IsQuestionAuthor(BasePermission):
     def has_object_permission(self, request, view, obj):
         return request.user.is_authenticated and obj.author == request.user
+__________________________________________________________________________________
+question/models.py
+
+from django.contrib.auth import get_user_model
+from django.db import models
+
+User = get_user_model()
+
+class Category(models.Model):
+    title = models.CharField(max_length=100, unique=True)
+
+    def __str__(self):
+        return self.title
+
+class Question(models.Model):
+    author = models.ForeignKey(User, on_delete=models.CASCADE,
+                               related_name='question')
+    category = models.ForeignKey(Category, on_delete=models.CASCADE,
+                                 related_name='question')
+    title = models.TextField()
+    image = models.ImageField(upload_to='')
+    problem = models.TextField()
+    public_date = models.DateField(auto_now_add=True)
+
+    def __str__(self):
+        return self.title
+
+class Answer(models.Model):
+    author = models.ForeignKey(User, on_delete=models.CASCADE, related_name='answer')
+    question = models.ForeignKey(Question, on_delete=models.CASCADE, related_name='answer')
+    solution = models.TextField()
+    image = models.ImageField(upload_to='', blank=True)
+    public_date = models.DateField(auto_now_add=True)
+    
+    def __str__(self):
+        return self.question.title
+    
+makemigrations ----- migrate
 
 
-Permission - должен возвращать True/False
