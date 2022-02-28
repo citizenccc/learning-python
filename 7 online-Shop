@@ -1,0 +1,234 @@
+requirements.txt
+venv env
+django-admin startproject online_store_proj .
+django-admin startapp account
+
+CREATE DATABASE online_store_db;
+
+_____________________________________________________
+.env
+settings.py
+
+'rest_framework.authtoken',
+AUTH_USER_MODEL = 'account.User'
+
+MEDIA_URL = 'media/'                            местный
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media/')   серверный
+
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES' : [
+        'rest_framework.authentincation.TokenAuthentication',],
+
+}
+
+_________________________________________________________
+apps.py
+
+name = 'applications.account'
+_________________________________________________________
+use_in_migrations - при миграции используются наши данные
+UserManager - будет использоваться наша модель пользователя
+
+models.py
+
+class Profile(models.Model):
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
+    first_name = models.CharField(max_length=50, blank=True, null=True)
+    photo = models.ImageField(upload_to='users_photo', blank=True, null=True)
+    age = models.IntegerField(blank=True, null=True)
+    city = models.CharField(max_length=100, blank=True, null=True)
+    
+    def __str__(self):
+        return self.user.email
+    
+делаем миграции, создаем суперюзера
+
+
+blank=True, null=True для того чтобы при инициализации не возникло ошибки
+_________________________________________________________
+admin.py - кастомизация админпанели
+
+from django.contrib import admin
+from django.contrib.auth.models import Group
+
+from applications.account.models import User, Profile
+
+admin.site.register(User)
+admin.site.register(Profile)
+admin.site.unregister(Group)
+_________________________________________________________
+serializer.py
+
+взяли старый сериалайзер, добавили
+
+class ProfileSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Profile
+        fields = '__all__'
+_________________________________________________________
+views.py
+view обработчик для типа запросов
+
+from rest_framework import generics
+from django.contrib.auth import get_user_model
+from rest_framework.authtoken.models import Token
+from rest_framework.authtoken.views import ObtainAuthToken
+from rest_framework.generics import get_object_or_404
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.views import APIView
+
+from applications.account.models import Profile
+from applications.account.serializer import RegisterSerializer, LoginSerializer, ProfileSerializer
+from rest_framework.response import Response
+from rest_framework import status
+
+
+
+class ProfileView(APIView):
+    permission_classes = [IsAuthenticated, ]
+
+    def get(self, request):
+        user = request.user
+        profile = Profile.objects.get(user=user.id)
+        serializer = ProfileSerializer(profile, many=False)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+    
+class ProfileUpdateView(generics.UpdateAPIView):
+    queryset = Profile.objects.all()
+    serializer_class = ProfileSerializer
+    permission_classes = [IsAuthenticated, IsProfileAuthor]
+    
+_________________________________________________________
+urls.py оба
+account/url
+
+from django.urls import path
+from . import views
+
+urlpatterns = [
+    path('register/', views.RegisterView.as_view()),
+    path('login/', views.LoginView.as_view()),
+    path('logout/', views.LogoutView.as_view()),
+    path('profile/', views.ProfileView.as_view()),
+    path('profile-update/<int:pk>/', views.ProfileView.as_view()),
+]
+
+GLOBAL URL
+from django.conf import settings
+from django.conf.urls.static import static
+from django.contrib import admin
+from django.urls import path, include
+
+urlpatterns = [
+    path('admin/', admin.site.urls),
+    path('api/v1/account', include('applications.account.urls')),
+    path('api/v1/category/', include('applications.category.urls'))
+] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+
+__________________________________________________________
+runserver
+
+get всегда берет request  и возвращает response
+_____________________________________________________________
+account/permissions.py
+
+from rest_framework.permissions import BasePermission
+
+class IsProfileAuthor(BasePermission):
+    def has_object_permission(self, request, view, obj):
+        return request.user.is_authenticated and obj.user == request.user
+_____________________________________________________________
+создаем прилодение category
+
+category/models.py
+from django.db import models
+
+class Category(models.Model):
+    title = models.CharField(max_length=100)
+    slug = models.SlugField(max_length=255, primary_key=True, unique=True,
+                            blank=True)
+    parent = models.ForeignKey('self', on_delete=models.CASCADE, related_name='children',
+                               blank=True, null=True)
+
+_______________________-
+pip3 install transliterate
+______________________________________________________________
+category/utils.py
+
+from transliterate import slugify
+
+def slug_generator(title):
+    slug = title.lower()
+    slug = slugify(slug)
+    return slug
+___________________________________________________________________
+category/models.py
+
+from django.db import models
+
+from applications.category.utils import slug_generator
+
+
+class Category(models.Model):
+    title = models.CharField(max_length=100)
+    slug = models.SlugField(max_length=255, primary_key=True, unique=True,
+                            blank=True)
+    parent = models.ForeignKey('self', on_delete=models.CASCADE, related_name='children',
+                               blank=True, null=True)
+    
+    def save(self, *args, **kwargs):
+        self.slug = slug_generator(self.title)
+        super(Category, self).save(*args, **kwargs) 
+        
+    def __str__(self):
+        return self.title
+
+___________________________________________________________
+category/admin.py
+
+from django.contrib import admin
+
+from applications.category.models import Category
+
+admin.site.register(Category)
+
+_____________________________________________________________
+category/serializers.py
+
+from rest_framework import serializers
+
+from applications.category.models import Category
+
+
+class CategorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Category
+        fields = '__all__'
+        
+    def to_representation(self, instance):
+        rep = super().to_representation(instance)
+        if not instance.parent:
+            rep.pop('parent')
+        return rep
+____________________________________________________________
+category/views.py
+
+from rest_framework import generics
+
+from applications.category.models import Category
+from applications.category.serializers import CategorySerializer
+
+
+class CategoryListView(generics.ListAPIView):
+    queryset = Category.objects.all()
+    serializer_class = CategorySerializer
+_____________________________________________________________
+category/urls.py
+
+from django.urls import path
+
+from applications.category.views import CategoryListView
+
+urlpatterns = [
+    path('categories-list/', CategoryListView.as_view())
+]
